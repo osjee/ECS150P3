@@ -15,6 +15,7 @@ int main(int argc, char** argv){
 	printf("Mounting Disk %s \n", argv[1]);
 	fs_mount(argv[1]);
 	fs_info();
+	fs_umount();
 
 	return 0;
 }

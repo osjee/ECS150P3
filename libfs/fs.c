@@ -8,6 +8,7 @@
 #include "fs.h"
 
 typedef __uint128_t uint128_t;
+#define ROOT_ENTRIES 128
 
 /* TODO: Phase 1 */
 struct superblock {
@@ -21,7 +22,7 @@ struct superblock {
 }__attribute__((packed));
 
 struct fat {
-	uint16_t index[BLOCK_SIZE / 8];
+	uint16_t index[BLOCK_SIZE / 2];
 }__attribute__((packed));
 
 struct root_dir_entry {
@@ -35,9 +36,14 @@ struct root_dir {
 	struct root_dir_entry entries[128];
 }__attribute__((packed));
 
-uint16_t fat_array;
+struct fat *fat_array; //Will hold fat blocks
 
 struct superblock *sb;
+
+struct root_dir* rt;
+
+int used_fat_entries;
+int used_root_entries;
 
 int fs_mount(const char *diskname)
 {
@@ -49,12 +55,33 @@ int fs_mount(const char *diskname)
 	//Allocate memory for superblock
 	sb = (struct superblock*)malloc(sizeof(struct superblock));
 
+	if (sb == NULL) {
+		printf("Superblock failed to allocate");
+		return -1;
+	}
+
+	//Allocate memory for root_dir
+	rt = (struct root_dir*)malloc(sizeof(struct root_dir));
+
+	if (rt == NULL) {
+		printf("root failed to allocate");
+		return -1;
+	}
+
 	//Variable to hold the block you read from
-	//uint8_t block[BLOCK_SIZE]; Might user later
+	//uint8_t block[BLOCK_SIZE]; //Might use later
 
 	//Read the super block from virtual disk
 	if (block_read(0, sb)) {
 		printf("read failed");
+	}
+
+	//Allocate memory for fat_array (after reading superblock, we now know how many fat blocks there are)
+	fat_array = (struct fat*)malloc(sb->num_fat_blocks * sizeof(struct fat));
+
+	if (fat_array == NULL) {
+		printf("Fat array failed to allocate");
+		return -1;
 	}
 
 	//Setup signature to compare to
@@ -67,6 +94,35 @@ int fs_mount(const char *diskname)
 	}
 	printf("Signatures do match!\n");
 
+	used_fat_entries = 0;
+	
+	//Read through all fat blocks to determine how many are used
+	for (int i = 0; i < sb->num_fat_blocks; i++) {
+		block_read(i+1, &fat_array[i]);
+		for (int j = 0; j < BLOCK_SIZE / 2; j++) {
+
+			//If the entry is 0 that means it is empty
+			if (fat_array[i].index[j] == 0) {
+				used_fat_entries += 1;
+			}
+		}
+	}
+
+	used_root_entries = 0;
+
+	//Needed to compare the filename of the root entry
+	char* null_char = "\0";
+
+	//Go through the root block and count used entries
+	block_read(sb->root_index, rt);
+	for (int j = 0; j < ROOT_ENTRIES; j++) {
+
+		//If the filename is \0 that means the entry is empty
+		if (memcmp(&rt->entries[j].filename,null_char,sizeof(uint128_t))) {
+			used_root_entries += 1;
+		}
+	}
+
 	printf("\n");
 	return 0;
 }
@@ -77,6 +133,9 @@ int fs_umount(void)
 
 	block_disk_close();
 
+	//Free everything that was malloced
+	free(rt);
+	free(fat_array);
 	free(sb);
 
 	return 0;
@@ -89,11 +148,11 @@ int fs_info(void)
 	printf("FS Info:\n");
 	printf("total_blk_count=%d\n", sb->total_blocks);
 	printf("fat_blk_count=%d\n", sb->num_fat_blocks);
-	printf("rdir_blk=%d\n", sb->num_fat_blocks+1); 
-	printf("data_blk=%d\n", sb->num_fat_blocks + 2); 
+	printf("rdir_blk=%d\n", sb->root_index); //sb->num_fat_blocks+1
+	printf("data_blk=%d\n", sb->data_start_index); //sb->num_fat_blocks + 2
 	printf("data_blk_count=%d\n", sb->num_data_blocks);
-	//printf("fat_free_ratio=%d\n", sb->); not from superblock
-	//printf("rdir_free_ratio%d\n", sb->); not from superblock
+	printf("fat_free_ratio=%d/%d\n", used_fat_entries, sb->num_fat_blocks*(BLOCK_SIZE / 2));
+	printf("rdir_free_ratio=%d/%d\n", used_root_entries, ROOT_ENTRIES);
 
 	return 0;
 }
