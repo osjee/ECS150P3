@@ -13,11 +13,11 @@ typedef __uint128_t uint128_t;
 /* TODO: Phase 1 */
 struct superblock {
 	uint64_t signature;
-	uint16_t total_blocks;
-	uint16_t root_index;
-	uint16_t data_start_index;
-	uint16_t num_data_blocks;
-	uint8_t num_fat_blocks;
+	uint16_t total_blk_count;
+	uint16_t rdir_blk;
+	uint16_t data_blk;
+	uint16_t data_blk_count;
+	uint8_t fat_blk_count;
 	uint8_t padding[4079];
 }__attribute__((packed));
 
@@ -40,7 +40,7 @@ struct fat *fat_array; //Will hold fat blocks
 
 struct superblock *sb;
 
-struct root_dir* rt;
+struct root_dir *rt;
 
 int used_fat_entries;
 int used_root_entries;
@@ -77,7 +77,7 @@ int fs_mount(const char *diskname)
 	}
 
 	//Allocate memory for fat_array (after reading superblock, we now know how many fat blocks there are)
-	fat_array = (struct fat*)malloc(sb->num_fat_blocks * sizeof(struct fat));
+	fat_array = (struct fat*)malloc(sb->fat_blk_count * sizeof(struct fat));
 
 	if (fat_array == NULL) {
 		printf("Fat array failed to allocate");
@@ -88,7 +88,7 @@ int fs_mount(const char *diskname)
 	char* default_sig = "ECS150FS";
 
 	//Check if block has correct signature
-	if (memcmp(&sb->signature,default_sig,sizeof(uint64_t))) {
+	if (memcmp(&sb->signature, default_sig, sizeof(uint64_t))) {
 		printf("Signatures do not match\n");
 		return -1;
 	}
@@ -97,7 +97,7 @@ int fs_mount(const char *diskname)
 	used_fat_entries = 0;
 	
 	//Read through all fat blocks to determine how many are used
-	for (int i = 0; i < sb->num_fat_blocks; i++) {
+	for (int i = 0; i < sb->fat_blk_count; i++) {
 		block_read(i+1, &fat_array[i]);
 		for (int j = 0; j < BLOCK_SIZE / 2; j++) {
 
@@ -114,11 +114,11 @@ int fs_mount(const char *diskname)
 	char* null_char = "\0";
 
 	//Go through the root block and count used entries
-	block_read(sb->root_index, rt);
+	block_read(sb->rdir_blk, rt);
 	for (int j = 0; j < ROOT_ENTRIES; j++) {
 
 		//If the filename is \0 that means the entry is empty
-		if (memcmp(&rt->entries[j].filename,null_char,sizeof(uint128_t))) {
+		if (memcmp(&rt->entries[j].filename, null_char, sizeof(uint128_t))) {
 			used_root_entries += 1;
 		}
 	}
@@ -146,12 +146,12 @@ int fs_info(void)
 	/* TODO: Phase 1 */
 
 	printf("FS Info:\n");
-	printf("total_blk_count=%d\n", sb->total_blocks);
-	printf("fat_blk_count=%d\n", sb->num_fat_blocks);
-	printf("rdir_blk=%d\n", sb->root_index); //sb->num_fat_blocks+1
-	printf("data_blk=%d\n", sb->data_start_index); //sb->num_fat_blocks + 2
-	printf("data_blk_count=%d\n", sb->num_data_blocks);
-	printf("fat_free_ratio=%d/%d\n", used_fat_entries, sb->num_fat_blocks*(BLOCK_SIZE / 2));
+	printf("total_blk_count=%d\n", sb->total_blk_count);
+	printf("fat_blk_count=%d\n", sb->fat_blk_count);
+	printf("rdir_blk=%d\n", sb->rdir_blk); //sb->fat_blk_count + 1
+	printf("data_blk=%d\n", sb->data_blk); //sb->fat_blk_count + 2
+	printf("data_blk_count=%d\n", sb->data_blk_count);
+	printf("fat_free_ratio=%d/%d\n", used_fat_entries, sb->fat_blk_count*(BLOCK_SIZE / 2));
 	printf("rdir_free_ratio=%d/%d\n", used_root_entries, ROOT_ENTRIES);
 
 	return 0;
@@ -161,6 +161,7 @@ int fs_create(const char *filename)
 {
 	/* TODO: Phase 2 */
 
+	
 	return 0;
 }
 
