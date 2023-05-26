@@ -14,7 +14,19 @@
 int main(int argc, char** argv){
 	printf("Mounting Disk %s \n", argv[1]);
 	fs_mount(argv[1]);
-	fs_info();
+	//fs_info();
+	
+	char *f0 = "test_file_0";
+	fs_create(f0);
+	fs_ls();
+
+	char *f1 = "test_file_1";
+	fs_create(f1);
+	fs_ls();
+
+	fs_delete(f0);
+	fs_ls();
+
 	fs_umount();
 
 	return 0;

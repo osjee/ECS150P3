@@ -26,21 +26,24 @@ struct fat {
 }__attribute__((packed));
 
 struct root_dir_entry {
-	uint128_t filename;
+	char filename[16];
 	uint32_t size;
 	uint16_t index;
 	uint8_t padding[10];
 }__attribute__((packed));
 
+
 struct root_dir {
 	struct root_dir_entry entries[128];
 }__attribute__((packed));
+
 
 struct fat *fat_array; //Will hold fat blocks
 
 struct superblock *sb;
 
-struct root_dir *rt;
+struct root_dir *rd;
+//struct root_dir_entry root_dir[ROOT_ENTRIES];
 
 int used_fat_entries;
 int used_root_entries;
@@ -61,9 +64,9 @@ int fs_mount(const char *diskname)
 	}
 
 	//Allocate memory for root_dir
-	rt = (struct root_dir*)malloc(sizeof(struct root_dir));
+	rd = (struct root_dir*)malloc(sizeof(struct root_dir));
 
-	if (rt == NULL) {
+	if (rd == NULL) {
 		printf("root failed to allocate");
 		return -1;
 	}
@@ -103,23 +106,25 @@ int fs_mount(const char *diskname)
 
 			//If the entry is 0 that means it is empty
 			if (fat_array[i].index[j] == 0) {
-				used_fat_entries += 1;
+				used_fat_entries++;
 			}
 		}
 	}
 
 	used_root_entries = 0;
 
-	//Needed to compare the filename of the root entry
-	char* null_char = "\0";
-
 	//Go through the root block and count used entries
-	block_read(sb->rdir_blk, rt);
-	for (int j = 0; j < ROOT_ENTRIES; j++) {
+	block_read(sb->rdir_blk, rd);
+	for (int i = 0; i < ROOT_ENTRIES; i++) {
 
 		//If the filename is \0 that means the entry is empty
-		if (memcmp(&rt->entries[j].filename, null_char, sizeof(uint128_t))) {
-			used_root_entries += 1;
+		/*
+		if (memcmp(&rd->entries[j].filename, null_char, sizeof(uint128_t))) {
+			used_root_entries++;
+		}
+		*/
+		if (rd->entries[i].filename[0]) {
+			used_root_entries++;
 		}
 	}
 
@@ -134,7 +139,7 @@ int fs_umount(void)
 	block_disk_close();
 
 	//Free everything that was malloced
-	free(rt);
+	free(rd);
 	free(fat_array);
 	free(sb);
 
@@ -161,7 +166,30 @@ int fs_create(const char *filename)
 {
 	/* TODO: Phase 2 */
 
-	
+	// Return -1 if no FS is mounted or filename is invalid or filename length is too long or root directory contains maximum file count
+	if (block_disk_count() == -1 || !filename || sizeof(filename) > sizeof(uint128_t) || used_root_entries == 128) { // Change to 128 later (need to change data type of filename maybe)
+		return -1;
+	}
+
+	int free_index = -1;
+
+	for (int i = 0; i < ROOT_ENTRIES; i++) {
+		// Return -1 if filename exists
+		if (rd->entries[i].filename == filename) {
+			return -1;
+		}
+
+		// Get first free index
+		if (rd->entries[i].filename[0] == '\0' && free_index == -1) {
+			free_index = i;
+		}
+	}
+
+	// Copy filename into entry's filename
+	strcpy(rd->entries[free_index].filename, filename);
+
+	used_root_entries++;
+
 	return 0;
 }
 
@@ -169,12 +197,42 @@ int fs_delete(const char *filename)
 {
 	/* TODO: Phase 2 */
 
+	// Return -1 if no FS is mounted or filename is invalid
+	if (block_disk_count() == -1 || !filename) { // CHECK IF FILE IS CURRENTLY OPEN
+		return -1;
+	}
+
+	int found_index = -1;
+
+	for (int i = 0; i < ROOT_ENTRIES; i++) {
+		if (!strcmp(rd->entries[i].filename, filename)) {
+			found_index = i;
+		}
+	}
+
+	if (found_index == -1) {
+		return -1;
+	}
+
+	rd->entries[found_index].filename[0] = '\0';
+
+	used_root_entries--;
+
 	return 0;
 }
 
 int fs_ls(void)
 {
 	/* TODO: Phase 2 */
+	if (block_disk_count() == -1) {
+		return -1;
+	}
+
+	for (int i = 0; i < ROOT_ENTRIES; i++) {
+		if (rd->entries[i].filename[0]) {
+			printf("Index: %i\nFilename: %s\n", i, rd->entries[i].filename);
+		}
+	}
 
 	return 0;
 }
