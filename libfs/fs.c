@@ -210,6 +210,7 @@ int fs_delete(const char *filename)
 		}
 	}
 
+	// Return -1 if file not found
 	if (found_index == -1) {
 		return -1;
 	}
@@ -224,6 +225,8 @@ int fs_delete(const char *filename)
 int fs_ls(void)
 {
 	/* TODO: Phase 2 */
+
+	// Return -1 if no FS is mounted
 	if (block_disk_count() == -1) {
 		return -1;
 	}
