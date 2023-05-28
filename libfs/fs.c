@@ -48,6 +48,8 @@ struct root_dir *rd;
 int used_fat_entries;
 int used_root_entries;
 
+int fs_open_count; // Track how many files are open
+
 int fs_mount(const char *diskname)
 {
 	/* TODO: Phase 1 */
@@ -67,7 +69,7 @@ int fs_mount(const char *diskname)
 	rd = (struct root_dir*)malloc(sizeof(struct root_dir));
 
 	if (rd == NULL) {
-		printf("root failed to allocate");
+		printf("Root failed to allocate");
 		return -1;
 	}
 
@@ -76,7 +78,7 @@ int fs_mount(const char *diskname)
 
 	//Read the super block from virtual disk
 	if (block_read(0, sb)) {
-		printf("read failed");
+		printf("Read failed");
 	}
 
 	//Allocate memory for fat_array (after reading superblock, we now know how many fat blocks there are)
@@ -156,7 +158,7 @@ int fs_info(void)
 	printf("rdir_blk=%d\n", sb->rdir_blk); //sb->fat_blk_count + 1
 	printf("data_blk=%d\n", sb->data_blk); //sb->fat_blk_count + 2
 	printf("data_blk_count=%d\n", sb->data_blk_count);
-	printf("fat_free_ratio=%d/%d\n", used_fat_entries, sb->fat_blk_count*(BLOCK_SIZE / 2));
+	printf("fat_free_ratio=%d/%d\n", used_fat_entries, sb->fat_blk_count * (BLOCK_SIZE / 2));
 	printf("rdir_free_ratio=%d/%d\n", used_root_entries, ROOT_ENTRIES);
 
 	return 0;
@@ -187,6 +189,8 @@ int fs_create(const char *filename)
 
 	// Copy filename into entry's filename
 	strcpy(rd->entries[free_index].filename, filename);
+	rd->entries[free_index].size = 0;
+	rd->entries[free_index].index = 0xFFFF;
 
 	used_root_entries++;
 
@@ -226,6 +230,8 @@ int fs_ls(void)
 {
 	/* TODO: Phase 2 */
 
+	printf("FS Ls:\n");
+
 	// Return -1 if no FS is mounted
 	if (block_disk_count() == -1) {
 		return -1;
@@ -233,7 +239,7 @@ int fs_ls(void)
 
 	for (int i = 0; i < ROOT_ENTRIES; i++) {
 		if (rd->entries[i].filename[0]) {
-			printf("Index: %i\nFilename: %s\n", i, rd->entries[i].filename);
+			printf("file: %s, size: %i, data_blk: %i\n", rd->entries[i].filename, rd->entries[i].size, rd->entries[i].index);
 		}
 	}
 
