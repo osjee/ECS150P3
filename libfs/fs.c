@@ -9,6 +9,7 @@
 
 typedef __uint128_t uint128_t;
 #define ROOT_ENTRIES 128
+#define FAT_EOC 0xFFFF
 
 /* TODO: Phase 1 */
 struct superblock {
@@ -88,6 +89,9 @@ int fs_mount(const char *diskname)
 		printf("Fat array failed to allocate");
 		return -1;
 	}
+
+	// First entry in FAT array should be FAT_EOC
+	fat_array[0].index[0] = FAT_EOC;
 
 	//Setup signature to compare to
 	char* default_sig = "ECS150FS";
@@ -190,7 +194,7 @@ int fs_create(const char *filename)
 	// Copy filename into entry's filename
 	strcpy(rd->entries[free_index].filename, filename);
 	rd->entries[free_index].size = 0;
-	rd->entries[free_index].index = 0xFFFF;
+	rd->entries[free_index].index = FAT_EOC;
 
 	used_root_entries++;
 
@@ -220,6 +224,32 @@ int fs_delete(const char *filename)
 	}
 
 	rd->entries[found_index].filename[0] = '\0';
+
+	// Remove data from FAT array
+	while (rd->entries[found_index].index != FAT_EOC) {
+		/*
+		Block to delete from is calculated by the index / by the number of entries in struct fat (2048)
+		Index to delete from is calculated by the index - (fat block to delete * by the number of entries in struct fat (2048))
+
+		Example using index 1:
+		Block to delete from: 1 / 2048 = 0
+		Index to delete from: 1 - (0 * 2048) = 1
+
+		Example using index 2048:
+		Block to delete from: 2048 / 2048 = 1
+		Index to delete from: 2048 - (1 * 2048) = 0
+		*/
+
+		// Chooses the block to delete from
+		int fat_block = rd->entries[found_index].index / (BLOCK_SIZE / 2); 
+		// Chooses the index of the block to delete from
+		int fat_index = rd->entries[found_index].index - fat_block * (BLOCK_SIZE / 2); 
+
+		// Set next index to delete
+		rd->entries[found_index].index = fat_array[fat_block].index[fat_index];
+
+		fat_array[fat_block].index[fat_index] = 0;
+	}
 
 	used_root_entries--;
 
