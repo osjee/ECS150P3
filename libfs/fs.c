@@ -22,9 +22,13 @@ struct superblock {
 	uint8_t padding[4079];
 }__attribute__((packed));
 
+struct superblock *sb;
+
 struct fat {
 	uint16_t index[BLOCK_SIZE / 2];
 }__attribute__((packed));
+
+struct fat *fat_array; //Will hold fat blocks
 
 struct root_dir_entry {
 	char filename[16];
@@ -33,15 +37,9 @@ struct root_dir_entry {
 	uint8_t padding[10];
 }__attribute__((packed));
 
-
 struct root_dir {
 	struct root_dir_entry entries[128];
 }__attribute__((packed));
-
-
-struct fat *fat_array; //Will hold fat blocks
-
-struct superblock *sb;
 
 struct root_dir *rd;
 //struct root_dir_entry root_dir[ROOT_ENTRIES];
@@ -58,6 +56,38 @@ struct file_descripter {
 };
 
 struct file_descripter *files[FS_FILE_MAX_COUNT];
+
+// Helper functions
+
+// Returns index of free data block
+int get_free_data_index() {
+
+	int block, index;
+	int stop_flag = 0;
+
+	for (block = 0; block < sb->fat_blk_count; block++) {
+		for (index = 0; index < BLOCK_SIZE / 2; index++) {
+			//printf("%i\n", fat_array[block].index[index]);
+			if (!fat_array[block].index[index]) {
+				stop_flag = 1;
+				break;
+			}
+		}
+		if (stop_flag) {
+			break;
+		}
+	}
+
+	return index + (block * BLOCK_SIZE / 2);
+}
+
+void print() {
+	for (int i = 0; i < sb->fat_blk_count; i++) {
+		for (int j= 0; j < BLOCK_SIZE / 2; j++) {
+			printf("%i\n", fat_array[i].index[j]);
+		}
+	}
+}
 
 int fs_mount(const char *diskname)
 {
@@ -114,16 +144,18 @@ int fs_mount(const char *diskname)
 	used_fat_entries = 0;
 	
 	//Read through all fat blocks to determine how many are used
+	// THIS BREAKS STUFF
+	/*
 	for (int i = 0; i < sb->fat_blk_count; i++) {
 		block_read(i+1, &fat_array[i]);
 		for (int j = 0; j < BLOCK_SIZE / 2; j++) {
 
 			//If the entry is 0 that means it is empty
-			if (!fat_array[i].index[j] == 0) {
+			if (fat_array[i].index[j]) {
 				used_fat_entries++;
 			}
 		}
-	}
+	}*/
 
 	used_root_entries = 0;
 
@@ -310,13 +342,13 @@ int fs_open(const char *filename)
 
 	//Return if max fd's has been reached
 	if (fs_open_count == FS_FILE_MAX_COUNT) {
-		printf("Too many files open");
+		printf("Too many files open\n");
 		return -1;
 	}
 
 	//Check for null pointer
 	if (!filename) {
-		printf("Invalid filename");
+		printf("Invalid filename\n");
 		return -1;
 	}
 	
@@ -327,26 +359,31 @@ int fs_open(const char *filename)
 			//Allocate memory
 			files[i] = (struct file_descripter*)malloc(sizeof(struct file_descripter));
 			if (files[i] == NULL) {
-				printf("file descripter failed to allocate enough memory");
+				printf("file descripter failed to allocate enough memory\n");
 				return -1;
 			}
 
 			//Check for file in root entry
+			files[i]->root_entry = -1;
+
 			for (int j = 0; j < ROOT_ENTRIES; j++) {
-				if (rd->entries[j].filename == filename) {
+				if (!strcmp(rd->entries[j].filename, filename)) {
 					files[i]->root_entry = j;
+					break;
 				}
-				else {
-					printf("File not found");
-					return -1;
-				}
+			}
+
+			// Return -1 if file not found
+			if (files[i]->root_entry == -1) {
+				printf("File not found\n");
+				return -1;
 			}
 
 			//Set defaults
 			files[i]->filename = filename;
 			files[i]->offset = 0;
 
-			fs_open_count += 1;
+			fs_open_count++;
 
 			//Return fd
 			return i;
@@ -366,20 +403,22 @@ int fs_close(int fd)
 	}
 
 	//Check for bounds error
-	if (fd > FS_FILE_MAX_COUNT - 1) {
-		printf("file out of bounds");
+	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
+		printf("file out of bounds\n");
 		return -1;
 	}
 
 	//Check to see if the fd exists
 	if (files[fd] == NULL) {
-		printf("File descripter not found");
+		printf("File descripter not found\n");
 		return -1;
 	}
 
 	//Remove file descripter object
 	free(files[fd]);
 	files[fd] = NULL;
+
+	fs_open_count--;
 
 	return 0;
 }
@@ -394,21 +433,19 @@ int fs_stat(int fd)
 	}
 
 	//Check for bounds error
-	if (fd > FS_FILE_MAX_COUNT - 1) {
-		printf("file out of bounds");
+	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
+		printf("file out of bounds\n");
 		return -1;
 	}
 
 	//Check to see if the fd exists
 	if (files[fd] == NULL) {
-		printf("File descripter not found");
+		printf("File descripter not found\n");
 		return -1;
 	}
 
 	//Find size from the file descripter which the fd knows its entry
-	return (rd->entries[files[fd]->root_entry].size);
-
-	return 0;
+	return rd->entries[files[fd]->root_entry].size;
 }
 
 int fs_lseek(int fd, size_t offset)
@@ -421,20 +458,20 @@ int fs_lseek(int fd, size_t offset)
 	}
 
 	//Check for bounds error
-	if (fd > FS_FILE_MAX_COUNT - 1) {
-		printf("file out of bounds");
+	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
+		printf("file out of bounds\n");
 		return -1;
 	}
 
 	//Check to see if the fd exists
 	if (files[fd] == NULL) {
-		printf("File descripter not found");
+		printf("File descripter not found\n");
 		return -1;
 	}
 
 	//Check if the offset is greater than the size of the file
-	if (files[fd]->offset > rd->entries[files[fd]->root_entry].size) {
-		printf("Offset is bigger than file size");
+	if (offset > rd->entries[files[fd]->root_entry].size) {
+		printf("Offset is bigger than file size\n");
 		return -1;
 	}
 
@@ -447,12 +484,62 @@ int fs_write(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
 
-	return 0;
+	// Return -1 if no FS is mounted or fd is out of bounds or fd isn't open or buffer doesn't exist
+	if (block_disk_count() == -1 || fd > FS_FILE_MAX_COUNT - 1 || fd < 0 || !files[fd] || !buf) {
+		return -1;
+	}
+
+	// No need to do anything if count is less than 1
+	if (count < 1) {
+		return 0;
+	}
+
+	// Get locations of data and FAT to update
+	int free_data_index = get_free_data_index();
+	int free_fat_block = free_data_index / (BLOCK_SIZE / 2);
+	int free_fat_index = free_data_index % (BLOCK_SIZE / 2);
+
+	char bounce_buf[count];
+
+	strncpy(bounce_buf, buf, count);
+
+	block_write(sb->data_blk + free_data_index, bounce_buf);
+
+	// Update FAT array
+	fat_array[free_fat_block].index[free_fat_index] = FAT_EOC;
+	block_write(free_fat_block + 1, &fat_array[free_fat_block]);
+
+	// Update root directory entry's size and index of data block
+	rd->entries[files[fd]->root_entry].size = count; // strlen(count) maybe?
+	rd->entries[files[fd]->root_entry].index = sb->data_blk + free_data_index;
+	block_write(sb->rdir_blk, rd);
+
+	return strlen(buf); // Return number of bytes written
 }
 
 int fs_read(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
+
+	// Return -1 if no FS is mounted or fd is out of bounds or fd isn't open or buffer doesn't exist
+	if (block_disk_count() == -1 || fd > FS_FILE_MAX_COUNT - 1 || fd < 0 || !files[fd] || !buf) {
+		return -1;
+	}
+
+	// No need to do anything if count is less than 1
+	if (count < 1) {
+		buf = NULL; // Idk if this is right
+		return 0;
+	}
+
+	char *bounce_buf = malloc(BLOCK_SIZE);
+
+	block_read(rd->entries[files[fd]->root_entry].index, bounce_buf);
+
+	strncpy(buf, bounce_buf + files[fd]->offset, count);
+	printf("Offset: %li\n", files[fd]->offset);
+
+	free(bounce_buf);
 
 	return 0;
 }
