@@ -501,6 +501,78 @@ int fs_lseek(int fd, size_t offset)
 	return 0;
 }
 
+//Will write the first bit of count to fill the block from the offset
+//Returns the index of the new data block if count overflowed the data block
+//If not filled it returns 0
+int write_first(int fd, void* buf, size_t count) {
+
+	char bounce[count];
+
+	//The offset from the beggining of the block
+	int offset_in_file = files[fd]->offset % BLOCK_SIZE;
+
+	//printf("offset %d \n", offset_in_file);
+
+	//Start index of fat entry that contains the offset
+	int offset_data_entry = rd->entries[files[fd]->root_entry].index;
+
+	//printf("offset entry %d \n", offset_data_entry);
+
+	//Find fat block that contains the entry of intrest
+	int fat_block = files[fd]->offset / BLOCK_SIZE;
+
+	//Find fat entry that contains offset
+	for (int i = 0; i < offset_in_file; i++) {
+		offset_data_entry = fat_array[fat_block].index[offset_data_entry];
+	}
+
+	//Read the beggining block into bounce
+	block_read(offset_data_entry + sb->fat_blk_count + 1, bounce);
+
+	//Check to see if count if bigger than whats avaliable
+	size_t ammount = count;
+	size_t avaliable = BLOCK_SIZE - offset_in_file;
+
+	if (avaliable < count) {
+		ammount = BLOCK_SIZE - offset_in_file;
+	}
+
+	//Overwrite empty spots with enough from buffer to fill the block
+	strncpy(&bounce[offset_in_file], buf, ammount);
+
+	//Write back to the file
+	block_write(offset_data_entry + sb->fat_blk_count + 1, bounce);
+
+	//Move offset
+	files[fd]->offset = files[fd]->offset + ammount;
+
+	//If it filled the block make another data block and add it to the entry
+	if (ammount != count) {
+
+		//Get a new data block 
+		int new_data_block = get_free_data_block();
+
+		//Find fat index of that data block
+		int new_fat_block = (new_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
+		int new_fat_index = (new_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
+
+		//Make old fat entry point to newer data block
+		fat_array[fat_block].index[offset_data_entry] = new_data_block;
+
+		//Make new fat entry point to FAT_EOC
+		fat_array[new_fat_block].index[new_fat_index] = FAT_EOC;
+
+		//Return index of new data block
+		return new_data_block;
+	}
+
+	//Change file size to match new write
+	rd->entries[files[fd]->root_entry].size += ammount;
+
+	return 0;
+
+}
+
 int fs_write(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
@@ -515,7 +587,7 @@ int fs_write(int fd, void *buf, size_t count)
 		return 0;
 	}
 
-	struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
+	//struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
 
 	// Get locations of data and FAT to update
 
@@ -523,15 +595,71 @@ int fs_write(int fd, void *buf, size_t count)
 	int free_fat_block = (free_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
 	int free_fat_index = (free_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
 
+	//char bounce[count];
+
+	// Holds block specific buffer
+	char block_bounce[BLOCK_SIZE];
+
+	//Fill first bit of the block
+	int data_block = write_first(fd, buf, count);
+
+	//Check to see if the block was filled
+	if (data_block == 0) {
+		return strlen(buf);
+	}
+
+	printf("You should not get here with a simple test \n");
+		
+	//If not run through all blocks until last one
+	//The range is how many FULL blocks we can fill, we have to subtract the amount done by write_first
+	int ammount = count - (BLOCK_SIZE - files[fd]->offset);
+
+	for (int i = 0; i < ammount / BLOCK_SIZE; i++) {
+			
+		//Move each chunk into bounce
+		strncpy(block_bounce, buf + (BLOCK_SIZE - files[fd]->offset) + BLOCK_SIZE * i, BLOCK_SIZE);
+			
+		//Write bounce to desired block
+		block_write(sb->data_blk+data_block, block_bounce);
+
+		//Check if there is no other block to traverse too
+		if (get_fat_entry(data_block) == FAT_EOC) {
+
+			//Make new entry
+			free_data_block = get_free_data_block();
+			free_fat_block = (free_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
+			free_fat_index = (free_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
+			fat_array[free_fat_block].index[free_fat_index] = FAT_EOC;
+
+			//Change old entry to point towards new entry
+			int current_fat_block = (data_block - sb->data_blk) / (BLOCK_SIZE / 2);
+			int current_fat_index = (data_block - sb->data_blk) % (BLOCK_SIZE / 2);
+			fat_array[current_fat_block].index[current_fat_index] = free_data_block;
+
+			//Change the old data block into the new one
+			data_block = free_data_block;
+		}
+		else {
+			//Change the old data block into the new one
+			data_block = sb->data_blk + get_fat_entry(data_block);
+		}
+
+		//Move offset along
+		files[fd]->offset += BLOCK_SIZE;
+	}
+		
+	//Return if it was a perfect fit
+	if (ammount % BLOCK_SIZE == 0) {
+		return strlen(buf);
+	}
+
+	//After finishing the chunks write the last part
+	strncpy(block_bounce, buf + count - ((count - ammount) % BLOCK_SIZE), (count - ammount) % BLOCK_SIZE);
+	block_write(data_block, block_bounce);
+
+	files[fd]->offset += (count - ammount) % BLOCK_SIZE;
+
 	/*
-	We need to see if count + offset is greater than BLOCK_SIZE
-	If it is, append part of string to block and then fill new data block and update FAT
-
-	NOT IMPLEMENTED YET
-	*/
-
-	char bounce[count];
-
 	strncpy(bounce, buf, count);
 
 	block_write(free_data_block, bounce);
@@ -543,8 +671,14 @@ int fs_write(int fd, void *buf, size_t count)
 	// Update root directory entry's size and index of data block
 	(*file).size = count; // strlen(count) maybe?
 	(*file).index = free_data_block;
-	block_write(sb->rdir_blk, rd);
 
+	//Change offset
+	files[fd]->offset = count;
+
+	block_write(sb->rdir_blk, rd);
+	*/
+	
+	//NEED TO CHANGE THIS IF DISK RUNS OUT OF DATA BLOCKS TO WRITE TO
 	return strlen(buf); // Return number of bytes written
 }
 
