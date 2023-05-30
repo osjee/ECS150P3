@@ -85,7 +85,6 @@ int get_free_data_block() {
 int get_fat_entry(int db) {
 	int fat_block = (db - sb->data_blk) / (BLOCK_SIZE / 2);
 	int fat_index = (db - sb->data_blk) % (BLOCK_SIZE / 2);
-
 	return fat_array[fat_block].index[fat_index];
 }
 
@@ -298,33 +297,25 @@ int fs_delete(const char *filename)
 	}
 
 	rd->entries[found_index].filename[0] = '\0';
+	int to_delete = rd->entries[found_index].index;
+
+	int temp = 1;
 
 	// Remove data from FAT array
-	while (rd->entries[found_index].index != FAT_EOC) {
-		//printf("%i\n", rd->entries[found_index].index);
-		/*
-		Block to delete from is calculated by the index / by the number of entries in struct fat (2048)
-		Index to delete from is calculated by the index - (fat block to delete * by the number of entries in struct fat (2048))
-
-		Example using index 1:
-		Block to delete from: 1 / 2048 = 0
-		Index to delete from: 1 - (0 * 2048) = 1
-
-		Example using index 2048:
-		Block to delete from: 2048 / 2048 = 1
-		Index to delete from: 2048 - (1 * 2048) = 0
-		*/
-
-		// FAT entries start after 0 since fat_array[0].index[0] = FAT_EOC
+	while ((temp++ < 5)) {
 		// Chooses the block to delete from
-		int fat_block = (rd->entries[found_index].index - sb->data_blk) / (BLOCK_SIZE / 2); 
+		int fat_block = (to_delete - sb->data_blk) / (BLOCK_SIZE / 2); 
 		// Chooses the index of the block to delete from
-		int fat_index = (rd->entries[found_index].index - sb->data_blk) % (BLOCK_SIZE / 2); 
+		int fat_index = (to_delete - sb->data_blk) % (BLOCK_SIZE / 2); 
 
-		// Set next index to delete
-		rd->entries[found_index].index = fat_array[fat_block].index[fat_index];
+		if (get_fat_entry(to_delete) == FAT_EOC) {
+			fat_array[fat_block].index[fat_index] = 0;
+			break;
+		}
 
-		fat_array[fat_block].index[fat_index] = 0;
+		to_delete = get_next_data_block(to_delete);
+
+		fat_array[fat_block].index[fat_index] = 0;		
 	}
 
 	used_root_entries--;
@@ -517,33 +508,111 @@ int fs_write(int fd, void *buf, size_t count)
 
 	struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
 
-	// Get locations of data and FAT to update
 
+	/*
+	if new size (in blocks) is greater than old size, get free data blocks
+	(offset + count) / BLOCK_SIZE > files[fd]->size / BLOCK_SIZE
+	get difference between them
+	get that many free blocks
+	*/
+	
+	// Holds final buffer
+	char bounce[BLOCK_SIZE * ((files[fd]->offset + count) / BLOCK_SIZE + 1)];
+	//memset(bounce, '\0', BLOCK_SIZE * ((*file).size / BLOCK_SIZE + 1));
+
+	// Holds block specific buffer
+	//char block_bounce[BLOCK_SIZE];
+
+	if ((*file).size) {
+		fs_read(fd, bounce, BLOCK_SIZE * ((files[fd]->offset + count) / BLOCK_SIZE + 1));
+	}
+
+	memcpy(bounce + files[fd]->offset, buf, count);
+
+	int diff = (files[fd]->offset + count) / BLOCK_SIZE - (*file).size / BLOCK_SIZE;
+
+	// Runs if appending data
+	if (diff > 0 && (*file).size) {
+		int prev_data_block = (*file).index;
+		int prev_fat_block = (prev_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
+		int prev_fat_index = (prev_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
+
+		for (int i = 0; i < diff; i++) {
+			int free_data_block = get_free_data_block();
+			int free_fat_block = (free_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
+			int free_fat_index = (free_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
+
+			fat_array[free_fat_block].index[free_fat_index] = FAT_EOC;
+			fat_array[prev_fat_block].index[prev_fat_index] = free_data_block - sb->data_blk;
+
+			prev_fat_block = free_fat_block;
+			prev_fat_index = free_fat_index;
+		}
+
+		if ((*file).size < files[fd]->offset + count) {
+			(*file).size = files[fd]->offset + count;
+		}
+	}
+
+	// Runs if no data
+	if (!(*file).size) {
+		int prev_data_block = get_free_data_block();
+		int prev_fat_block = (prev_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
+		int prev_fat_index = (prev_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
+		
+		fat_array[prev_fat_block].index[prev_fat_index] = FAT_EOC;
+
+		for (int i = 0; i < (int)count / BLOCK_SIZE; i++) {
+			int free_data_block = get_free_data_block();
+			int free_fat_block = (free_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
+			int free_fat_index = (free_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
+
+			fat_array[free_fat_block].index[free_fat_index] = FAT_EOC;
+
+			fat_array[prev_fat_block].index[prev_fat_index] = free_data_block - sb->data_blk;
+
+			prev_fat_block = free_fat_block;
+			prev_fat_index = free_fat_index;
+		}
+
+		(*file).size = count;
+		(*file).index = prev_data_block;
+	}
+
+	int to_write = (*file).index;
+	int inc = 0;
+
+	while (1) {
+		char block_bounce[BLOCK_SIZE];
+		strncpy(block_bounce, bounce + (inc * BLOCK_SIZE), BLOCK_SIZE);
+
+		block_write(to_write, block_bounce);
+
+		if (get_fat_entry(to_write) == FAT_EOC) {
+			break;
+		}
+
+		to_write = get_next_data_block(to_write);
+		inc++;
+	}
+
+	/*
+	// Get locations of data and FAT to update
 	int free_data_block = get_free_data_block();
 	int free_fat_block = (free_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
 	int free_fat_index = (free_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
-
-	/*
-	We need to see if count + offset is greater than BLOCK_SIZE
-	If it is, append part of string to block and then fill new data block and update FAT
-
-	NOT IMPLEMENTED YET
-	*/
-
-	char bounce[count];
-
-	strncpy(bounce, buf, count);
 
 	block_write(free_data_block, bounce);
 
 	// Update FAT array
 	fat_array[free_fat_block].index[free_fat_index] = FAT_EOC;
-	block_write(free_fat_block + 1, &fat_array[free_fat_block]);
+	//block_write(free_fat_block + 1, &fat_array[free_fat_block]);
 
 	// Update root directory entry's size and index of data block
 	(*file).size = count; // strlen(count) maybe?
 	(*file).index = free_data_block;
-	block_write(sb->rdir_blk, rd);
+	//block_write(sb->rdir_blk, rd);
+	*/
 
 	return strlen(buf); // Return number of bytes written
 }
