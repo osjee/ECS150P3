@@ -272,6 +272,7 @@ int fs_delete(const char *filename)
 	for (int i = 0; i < ROOT_ENTRIES; i++) {
 		if (!strcmp(rd->entries[i].filename, filename)) {
 			found_index = i;
+			break;
 		}
 	}
 
@@ -283,7 +284,8 @@ int fs_delete(const char *filename)
 	rd->entries[found_index].filename[0] = '\0';
 
 	// Remove data from FAT array
-	while (rd->entries[found_index].index != FAT_EOC) { // DOES NOT TAKE INTO CONSIDERATION DATA BLOCK OFFSET
+	while (rd->entries[found_index].index != FAT_EOC) {
+		//printf("%i\n", rd->entries[found_index].index);
 		/*
 		Block to delete from is calculated by the index / by the number of entries in struct fat (2048)
 		Index to delete from is calculated by the index - (fat block to delete * by the number of entries in struct fat (2048))
@@ -297,10 +299,11 @@ int fs_delete(const char *filename)
 		Index to delete from: 2048 - (1 * 2048) = 0
 		*/
 
+		// FAT entries start after 0 since fat_array[0].index[0] = FAT_EOC
 		// Chooses the block to delete from
-		int fat_block = rd->entries[found_index].index / (BLOCK_SIZE / 2); 
+		int fat_block = (rd->entries[found_index].index - sb->data_blk) / (BLOCK_SIZE / 2); 
 		// Chooses the index of the block to delete from
-		int fat_index = rd->entries[found_index].index - fat_block * (BLOCK_SIZE / 2); 
+		int fat_index = (rd->entries[found_index].index - sb->data_blk) % (BLOCK_SIZE / 2); 
 
 		// Set next index to delete
 		rd->entries[found_index].index = fat_array[fat_block].index[fat_index];
@@ -309,6 +312,13 @@ int fs_delete(const char *filename)
 	}
 
 	used_root_entries--;
+
+	// Writing to block
+	block_write(0, sb);
+	for (int i = 0; i < sb->fat_blk_count; i++) {
+		block_write(i + 1, &fat_array[i]);
+	}
+	block_write(sb->rdir_blk, rd);
 
 	return 0;
 }
@@ -499,6 +509,7 @@ int fs_write(int fd, void *buf, size_t count)
 	struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
 
 	// Get locations of data and FAT to update
+
 	int free_data_index = get_free_data_index();
 	int free_fat_block = free_data_index / (BLOCK_SIZE / 2);
 	int free_fat_index = free_data_index % (BLOCK_SIZE / 2);
@@ -521,7 +532,6 @@ int fs_write(int fd, void *buf, size_t count)
 	// Update root directory entry's size and index of data block
 	(*file).size = count; // strlen(count) maybe?
 	(*file).index = sb->data_blk + free_data_index;
-	//printf("%i\n", (*file).index);
 	block_write(sb->rdir_blk, rd);
 
 	return strlen(buf); // Return number of bytes written
@@ -541,6 +551,20 @@ int fs_read(int fd, void *buf, size_t count)
 		return 0;
 	}
 
+	struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
+
+	char bounce[BLOCK_SIZE * ((*file).size / BLOCK_SIZE + 1)];
+	memset(bounce, '\0', BLOCK_SIZE * ((*file).size / BLOCK_SIZE + 1));
+	char block_bounce[BLOCK_SIZE];
+
+	block_read((*file).index, block_bounce);
+	printf("bb: %s\n", block_bounce);
+	strcat(bounce, block_bounce);
+	printf("bb: %s\n", bounce);
+
+	strncpy(buf, bounce + files[fd]->offset, count);
+
+	/*
 	struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
 
 	// Find blocks file takes up
@@ -573,6 +597,7 @@ int fs_read(int fd, void *buf, size_t count)
 	}
 
 	strncpy(buf, bounce + files[fd]->offset, count);
+	*/
 
 	return 0;
 }
