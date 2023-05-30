@@ -33,6 +33,7 @@ int main(int argc, char** argv){
 	fs_create(file1);		
 		fd = fs_open(file1);
 			fs_write(fd, text1, strlen(text1));
+			fs_lseek(fd, 0);
 			fs_read(fd, buf, strlen(text1));
 			printf("%s\n", buf);
 		fs_close(fd);
@@ -40,6 +41,7 @@ int main(int argc, char** argv){
 	fs_create("abcdefg");
 		fd = fs_open("abcdefg");
 			fs_write(fd, "abcdefg", 7);
+			fs_lseek(fd, 0);
 			fs_read(fd, buf, 7);
 			printf("%s\n", buf);
 		fs_close(fd);
@@ -47,6 +49,7 @@ int main(int argc, char** argv){
 	fs_create("hijklmn");
 		fd = fs_open("hijklmn");
 			fs_write(fd, "hijklmn", 7);
+			fs_lseek(fd, 0);
 			fs_read(fd, buf, 7);
 			printf("%s\n", buf);
 		fs_close(fd);
