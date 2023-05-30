@@ -51,7 +51,7 @@ int main(int argc, char** argv){
 			printf("%s\n", buf);
 		fs_close(fd);
 	fs_delete("hijklmn");
-
+	
 	fs_umount();
 
 	free(buf);

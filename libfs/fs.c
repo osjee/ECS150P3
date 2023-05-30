@@ -60,7 +60,7 @@ struct file_descripter *files[FS_FILE_MAX_COUNT];
 // Helper functions
 
 // Returns index of free data block
-int get_free_data_index() {
+int get_free_data_block() {
 
 	int block, index;
 	int stop_flag = 0;
@@ -78,7 +78,20 @@ int get_free_data_index() {
 		}
 	}
 
-	return index + (block * BLOCK_SIZE / 2);
+	return sb->data_blk + index + (block * BLOCK_SIZE / 2);
+}
+
+// Returns entry of FAT from data block
+int get_fat_entry(int db) {
+	int fat_block = (db - sb->data_blk) / (BLOCK_SIZE / 2);
+	int fat_index = (db - sb->data_blk) % (BLOCK_SIZE / 2);
+
+	return fat_array[fat_block].index[fat_index];
+}
+
+// Returns index of next data block
+int get_next_data_block(int db) {
+	return sb->data_blk + get_fat_entry(db);
 }
 
 void print() {
@@ -129,7 +142,7 @@ int fs_mount(const char *diskname)
 	}
 
 	// First entry in FAT array should be FAT_EOC
-	fat_array[0].index[0] = FAT_EOC;
+	//fat_array[0].index[0] = FAT_EOC; done already? probably lol
 
 	//Setup signature to compare to
 	char* default_sig = "ECS150FS";
@@ -143,9 +156,7 @@ int fs_mount(const char *diskname)
 
 	used_fat_entries = 0;
 	
-	//Read through all fat blocks to determine how many are used
-	// THIS BREAKS STUFF BUT IDK WHY
-	/*
+	//Read through all fat blocks to determine how many are used	
 	for (int i = 0; i < sb->fat_blk_count; i++) {
 		block_read(i+1, &fat_array[i]);
 		for (int j = 0; j < BLOCK_SIZE / 2; j++) {
@@ -155,7 +166,7 @@ int fs_mount(const char *diskname)
 				used_fat_entries++;
 			}
 		}
-	}*/
+	}
 
 	used_root_entries = 0;
 
@@ -189,7 +200,12 @@ int fs_umount(void)
 {
 	/* TODO: Phase 1 */
 
-	//TODO: SAVE EVERYTHING BACK TO THE DISK.FS
+	// Writing to block
+	block_write(0, sb);
+	for (int i = 0; i < sb->fat_blk_count; i++) {
+		block_write(i + 1, &fat_array[i]);
+	}
+	block_write(sb->rdir_blk, rd);
 
 	block_disk_close();
 
@@ -312,13 +328,6 @@ int fs_delete(const char *filename)
 	}
 
 	used_root_entries--;
-
-	// Writing to block
-	block_write(0, sb);
-	for (int i = 0; i < sb->fat_blk_count; i++) {
-		block_write(i + 1, &fat_array[i]);
-	}
-	block_write(sb->rdir_blk, rd);
 
 	return 0;
 }
@@ -510,20 +519,22 @@ int fs_write(int fd, void *buf, size_t count)
 
 	// Get locations of data and FAT to update
 
-	int free_data_index = get_free_data_index();
-	int free_fat_block = free_data_index / (BLOCK_SIZE / 2);
-	int free_fat_index = free_data_index % (BLOCK_SIZE / 2);
+	int free_data_block = get_free_data_block();
+	int free_fat_block = (free_data_block - sb->data_blk) / (BLOCK_SIZE / 2);
+	int free_fat_index = (free_data_block - sb->data_blk) % (BLOCK_SIZE / 2);
 
 	/*
 	We need to see if count + offset is greater than BLOCK_SIZE
 	If it is, append part of string to block and then fill new data block and update FAT
+
+	NOT IMPLEMENTED YET
 	*/
 
 	char bounce[count];
 
 	strncpy(bounce, buf, count);
 
-	block_write(sb->data_blk + free_data_index, bounce);
+	block_write(free_data_block, bounce);
 
 	// Update FAT array
 	fat_array[free_fat_block].index[free_fat_index] = FAT_EOC;
@@ -531,7 +542,7 @@ int fs_write(int fd, void *buf, size_t count)
 
 	// Update root directory entry's size and index of data block
 	(*file).size = count; // strlen(count) maybe?
-	(*file).index = sb->data_blk + free_data_index;
+	(*file).index = free_data_block;
 	block_write(sb->rdir_blk, rd);
 
 	return strlen(buf); // Return number of bytes written
@@ -553,51 +564,29 @@ int fs_read(int fd, void *buf, size_t count)
 
 	struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
 
+	// Holds final buffer
 	char bounce[BLOCK_SIZE * ((*file).size / BLOCK_SIZE + 1)];
 	memset(bounce, '\0', BLOCK_SIZE * ((*file).size / BLOCK_SIZE + 1));
+
+	// Holds block specific buffer
 	char block_bounce[BLOCK_SIZE];
 
-	block_read((*file).index, block_bounce);
-	printf("bb: %s\n", block_bounce);
-	strcat(bounce, block_bounce);
-	printf("bb: %s\n", bounce);
+	int data_block_to_read = (*file).index;
 
-	strncpy(buf, bounce + files[fd]->offset, count);
-
-	/*
-	struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
-
-	// Find blocks file takes up
-	int total_blocks = (*file).size / BLOCK_SIZE + 1;
-
-	// bounce holds final buffer, block_bounce holds block specific buffer
-	char bounce[total_blocks * BLOCK_SIZE];
-	char block_bounce[BLOCK_SIZE];
-
-	// Gets index of data array
-	int next_index = (*file).index;
-	int fat_block = (next_index - sb->data_blk) / (BLOCK_SIZE / 2);
-	int fat_index = (next_index - sb->data_blk) % (BLOCK_SIZE / 2);
-	int fat_entry = fat_array[fat_block].index[fat_index];
-
-	// Continue concatenating string until reaching FAT_EOC
+	// Continuously grab data until reaching FAT_EOC
 	while (1) {
-		block_read(next_index, block_bounce);
+		block_read(data_block_to_read, block_bounce);
 		strcat(bounce, block_bounce);
 
-		if (fat_entry == FAT_EOC) {
+		// Break if reaches FAT_EOC
+		if (get_fat_entry(data_block_to_read) == FAT_EOC) {
 			break;
 		}
 
-		fat_block = fat_entry / (BLOCK_SIZE / 2);
-		fat_index = fat_entry % (BLOCK_SIZE / 2);
-
-		fat_entry = fat_array[fat_block].index[fat_index];
-		next_index = fat_entry + sb->data_blk;
+		data_block_to_read = get_next_data_block(data_block_to_read);
 	}
-
+	
 	strncpy(buf, bounce + files[fd]->offset, count);
-	*/
 
 	return 0;
 }
