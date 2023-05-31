@@ -3,7 +3,7 @@ lib := libfs.a
 objs := disk.o fs.o
 
 CC := gcc
-CFLAGS := -Wall -Wextra -Werror -Wno-unused-parameter
+CFLAGS := -Wall -Wextra -Werror
 
 all: $(lib)
 
