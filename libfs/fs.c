@@ -250,7 +250,7 @@ int fs_create(const char *filename)
 
 	for (int i = 0; i < ROOT_ENTRIES; i++) {
 		// Return -1 if filename exists
-		if (rd->entries[i].filename == filename) {
+		if (!strcmp(rd->entries[i].filename, filename)) {
 			return -1;
 		}
 
@@ -528,6 +528,8 @@ int fs_write(int fd, void *buf, size_t count)
 
 	memcpy(bounce + files[fd]->offset, buf, count);
 
+	printf("%s\n", bounce);
+
 	int diff = (files[fd]->offset + count) / BLOCK_SIZE - (*file).size / BLOCK_SIZE;
 
 	// Runs if appending data
@@ -552,9 +554,15 @@ int fs_write(int fd, void *buf, size_t count)
 			(*file).size = files[fd]->offset + count;
 		}
 	}
-
-	// Runs if no data
-	if (!(*file).size) {
+	else if (diff == 0 && (*file).size) { // Runs if appending but not enough to fill block
+		if ((*file).size < files[fd]->offset + count) {
+			(*file).size = files[fd]->offset + count;
+		}
+		else {
+			(*file).size += count;
+		}
+	}
+	else if (!(*file).size) { // Runs if no file
 		int prev_data_block = get_free_data_block();
 		int prev_fat_block = prev_data_block / (BLOCK_SIZE / 2);
 		int prev_fat_index = prev_data_block % (BLOCK_SIZE / 2);
@@ -578,11 +586,16 @@ int fs_write(int fd, void *buf, size_t count)
 		(*file).index = prev_data_block;
 	}
 
+	//printf("%s\n", bounce);
+
 	int to_write = (*file).index;
+
 	int inc = 0;
-	while ((++inc)) {
+	while (1) {
 		char block_bounce[BLOCK_SIZE];
-		strncpy(block_bounce, bounce + ((inc - 1) * BLOCK_SIZE), BLOCK_SIZE);
+		memset(block_bounce, '\0', BLOCK_SIZE);
+
+		memcpy(block_bounce, bounce + inc * BLOCK_SIZE, BLOCK_SIZE - 1);
 
 		block_write(to_write + sb->data_blk, block_bounce);
 
@@ -591,6 +604,7 @@ int fs_write(int fd, void *buf, size_t count)
 		}
 
 		to_write = get_next_data_block(to_write);
+		inc++;
 	}
 
 	return strlen(buf); // Return number of bytes written
@@ -625,7 +639,7 @@ int fs_read(int fd, void *buf, size_t count)
 	// Continuously grab data until reaching FAT_EOC
 	while ((++inc)) {
 		block_read(to_read + sb->data_blk, block_bounce);
-		strcat(bounce, block_bounce);
+		strncat(bounce, block_bounce, BLOCK_SIZE);
 
 		// Break if reaches FAT_EOC
 		if (get_next_data_block(to_read) == FAT_EOC) {
