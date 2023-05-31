@@ -95,7 +95,9 @@ int get_next_data_block(int db) {
 void print() {
 	for (int i = 0; i < sb->fat_blk_count; i++) {
 		for (int j= 0; j < BLOCK_SIZE / 2; j++) {
-			printf("%i\n", fat_array[i].index[j]);
+			if (fat_array[i].index[j]) {
+				printf("%i\n", fat_array[i].index[j]);
+			}
 		}
 	}
 }
@@ -514,7 +516,7 @@ int fs_write(int fd, void *buf, size_t count)
 	
 	// Holds final buffer
 	char bounce[BLOCK_SIZE * ((files[fd]->offset + count) / BLOCK_SIZE + 1)];
-	//memset(bounce, '\0', BLOCK_SIZE * ((*file).size / BLOCK_SIZE + 1));
+	memset(bounce, '\0', BLOCK_SIZE * ((*file).size / BLOCK_SIZE + 1));
 	
 	// Holds block specific buffer
 	//char block_bounce[BLOCK_SIZE];
@@ -528,13 +530,21 @@ int fs_write(int fd, void *buf, size_t count)
 
 	memcpy(bounce + files[fd]->offset, buf, count);
 
-	printf("%s\n", bounce);
+	//printf("%s\n", bounce);
 
 	int diff = (files[fd]->offset + count) / BLOCK_SIZE - (*file).size / BLOCK_SIZE;
 
 	// Runs if appending data
 	if (diff > 0 && (*file).size) {
 		int prev_data_block = (*file).index;
+
+		while (1) {
+			if (get_next_data_block(prev_data_block) == FAT_EOC) {
+				break;
+			}
+			prev_data_block = get_next_data_block(prev_data_block);
+		}
+
 		int prev_fat_block = prev_data_block / (BLOCK_SIZE / 2);
 		int prev_fat_index = prev_data_block % (BLOCK_SIZE / 2);
 
@@ -595,7 +605,7 @@ int fs_write(int fd, void *buf, size_t count)
 		char block_bounce[BLOCK_SIZE];
 		memset(block_bounce, '\0', BLOCK_SIZE);
 
-		memcpy(block_bounce, bounce + inc * BLOCK_SIZE, BLOCK_SIZE - 1);
+		memcpy(block_bounce, bounce + inc * BLOCK_SIZE, BLOCK_SIZE);
 
 		block_write(to_write + sb->data_blk, block_bounce);
 
