@@ -67,7 +67,6 @@ int get_free_data_block() {
 
 	for (block = 0; block < sb->fat_blk_count; block++) {
 		for (index = 0; index < BLOCK_SIZE / 2; index++) {
-			//printf("%i\n", fat_array[block].index[index]);
 			if (!fat_array[block].index[index]) {
 				stop_flag = 1;
 				break;
@@ -192,7 +191,6 @@ int fs_mount(const char *diskname)
 		files[i] = NULL;
 	}
 
-	//printf("\n");
 	return 0;
 }
 
@@ -232,7 +230,6 @@ int fs_info(void)
 	printf("rdir_blk=%d\n", sb->rdir_blk); //sb->fat_blk_count + 1
 	printf("data_blk=%d\n", sb->data_blk); //sb->fat_blk_count + 2
 	printf("data_blk_count=%d\n", sb->data_blk_count);
-	//printf("fat_free_ratio=%d/%d\n", used_fat_entries, sb->fat_blk_count * (BLOCK_SIZE / 2)); 
 	printf("fat_free_ratio=%d/%d\n", sb->data_blk_count-used_fat_entries, sb->data_blk_count);
 	printf("rdir_free_ratio=%d/%d\n", ROOT_ENTRIES - used_root_entries, ROOT_ENTRIES);
 
@@ -505,32 +502,32 @@ int fs_write(int fd, void *buf, size_t count)
 	}
 
 	struct root_dir_entry *file = &rd->entries[files[fd]->root_entry];
-
-
-	/*
-	if new size (in blocks) is greater than old size, get free data blocks
-	(offset + count) / BLOCK_SIZE > files[fd]->size / BLOCK_SIZE
-	get difference between them
-	get that many free blocks
-	*/
-	
 	// Holds final buffer
-	char bounce[BLOCK_SIZE * ((files[fd]->offset + count) / BLOCK_SIZE + 1)];
-	memset(bounce, '\0', BLOCK_SIZE * ((*file).size / BLOCK_SIZE + 1));
-	
-	// Holds block specific buffer
-	//char block_bounce[BLOCK_SIZE];
+	char bounce[BLOCK_SIZE * (((*file).size + count) / BLOCK_SIZE + 1)];
+	memset(bounce, '\0', sizeof(bounce));
+
+	char block_bounce[BLOCK_SIZE];
+	int to_read = (*file).index;
+
 
 	if ((*file).size) {
+		/*
 		int temp_offset = files[fd]->offset;
 		fs_lseek(fd, 0);
 		fs_read(fd, bounce, BLOCK_SIZE * ((files[fd]->offset + count) / BLOCK_SIZE + 1));
 		fs_lseek(fd, temp_offset);
+		*/
+		while (1) {
+			block_read(to_read + sb->data_blk, block_bounce);
+			strncat(bounce, block_bounce, BLOCK_SIZE);
+			if (get_next_data_block(to_read) == FAT_EOC) {
+				break;
+			}
+			to_read = get_next_data_block(to_read);
+		}
 	}
 
 	memcpy(bounce + files[fd]->offset, buf, count);
-
-	//printf("%s\n", bounce);
 
 	int diff = (files[fd]->offset + count) / BLOCK_SIZE - (*file).size / BLOCK_SIZE;
 
@@ -544,7 +541,6 @@ int fs_write(int fd, void *buf, size_t count)
 			}
 			prev_data_block = get_next_data_block(prev_data_block);
 		}
-
 		int prev_fat_block = prev_data_block / (BLOCK_SIZE / 2);
 		int prev_fat_index = prev_data_block % (BLOCK_SIZE / 2);
 
@@ -567,9 +563,6 @@ int fs_write(int fd, void *buf, size_t count)
 	else if (diff == 0 && (*file).size) { // Runs if appending but not enough to fill block
 		if ((*file).size < files[fd]->offset + count) {
 			(*file).size = files[fd]->offset + count;
-		}
-		else {
-			(*file).size += count;
 		}
 	}
 	else if (!(*file).size) { // Runs if no file
@@ -596,16 +589,14 @@ int fs_write(int fd, void *buf, size_t count)
 		(*file).index = prev_data_block;
 	}
 
-	//printf("%s\n", bounce);
-
 	int to_write = (*file).index;
 
 	int inc = 0;
-	while (1) {
+	while ((++inc)) {
 		char block_bounce[BLOCK_SIZE];
 		memset(block_bounce, '\0', BLOCK_SIZE);
 
-		memcpy(block_bounce, bounce + inc * BLOCK_SIZE, BLOCK_SIZE);
+		memcpy(block_bounce, bounce + (inc - 1) * BLOCK_SIZE, BLOCK_SIZE);
 
 		block_write(to_write + sb->data_blk, block_bounce);
 
@@ -614,7 +605,6 @@ int fs_write(int fd, void *buf, size_t count)
 		}
 
 		to_write = get_next_data_block(to_write);
-		inc++;
 	}
 
 	return strlen(buf); // Return number of bytes written
@@ -650,6 +640,8 @@ int fs_read(int fd, void *buf, size_t count)
 	while ((++inc)) {
 		block_read(to_read + sb->data_blk, block_bounce);
 		strncat(bounce, block_bounce, BLOCK_SIZE);
+
+		//printf("%i: \n%s\n", inc, block_bounce);
 
 		// Break if reaches FAT_EOC
 		if (get_next_data_block(to_read) == FAT_EOC) {
