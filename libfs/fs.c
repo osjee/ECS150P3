@@ -584,7 +584,7 @@ int fs_write(int fd, void *buf, size_t count)
 		char block_bounce[BLOCK_SIZE];
 		strncpy(block_bounce, bounce + ((inc - 1) * BLOCK_SIZE), BLOCK_SIZE);
 
-		block_write(to_write, block_bounce);
+		block_write(to_write + sb->data_blk, block_bounce);
 
 		if (get_next_data_block(to_write) == FAT_EOC) {
 			break;
@@ -624,7 +624,7 @@ int fs_read(int fd, void *buf, size_t count)
 
 	// Continuously grab data until reaching FAT_EOC
 	while ((++inc)) {
-		block_read(to_read, block_bounce);
+		block_read(to_read + sb->data_blk, block_bounce);
 		strcat(bounce, block_bounce);
 
 		// Break if reaches FAT_EOC
