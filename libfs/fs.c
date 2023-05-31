@@ -518,6 +518,11 @@ int fs_write(int fd, void *buf, size_t count)
 		fs_lseek(fd, temp_offset);
 		*/
 		while (1) {
+			//Check if blocks to read are out of bounds **Might break code**
+			if (to_read + 1 > sb->data_blk_count) {
+				break;
+			}
+
 			block_read(to_read + sb->data_blk, block_bounce);
 			strncat(bounce, block_bounce, BLOCK_SIZE);
 			if (get_next_data_block(to_read) == FAT_EOC) {
@@ -530,6 +535,8 @@ int fs_write(int fd, void *buf, size_t count)
 	memcpy(bounce + files[fd]->offset, buf, count);
 
 	int diff = (files[fd]->offset + count) / BLOCK_SIZE - (*file).size / BLOCK_SIZE;
+
+	
 
 	// Runs if appending data
 	if (diff > 0 && (*file).size) {
@@ -593,6 +600,14 @@ int fs_write(int fd, void *buf, size_t count)
 
 	int inc = 0;
 	while ((++inc)) {
+
+		//Check to see if block to write is outside of file 
+		if (to_write + 1 > sb->data_blk_count) {
+			//Return bytes written
+			return (inc * BLOCK_SIZE - files[fd]->offset);
+			//return (BLOCK_SIZE - files[fd]->offset + BLOCK_SIZE * (inc - 1));
+		}
+
 		char block_bounce[BLOCK_SIZE];
 		memset(block_bounce, '\0', BLOCK_SIZE);
 
@@ -638,6 +653,12 @@ int fs_read(int fd, void *buf, size_t count)
 
 	// Continuously grab data until reaching FAT_EOC
 	while ((++inc)) {
+		//Check if read is out of bounds
+		if (to_read + 1 > sb->data_blk_count) {
+			count = inc * BLOCK_SIZE - files[fd]->offset;
+			break;
+		}
+
 		block_read(to_read + sb->data_blk, block_bounce);
 		strncat(bounce, block_bounce, BLOCK_SIZE);
 
