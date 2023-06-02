@@ -599,13 +599,15 @@ int fs_write(int fd, void *buf, size_t count)
 	int to_write = (*file).index;
 
 	int inc = 0;
-	while ((++inc)) {
+	int offset_start = files[fd]->offset;
 
+	//Used to calculate the amount of bytes that dont fill a block
+	int difference = 0;
+	while ((++inc)) {
 		//Check to see if block to write is outside of file 
 		if (to_write + 1 > sb->data_blk_count) {
 			//Return bytes written
-			return (inc * BLOCK_SIZE - files[fd]->offset);
-			//return (BLOCK_SIZE - files[fd]->offset + BLOCK_SIZE * (inc - 1));
+			return (files[fd]->offset - offset_start);
 		}
 
 		char block_bounce[BLOCK_SIZE];
@@ -615,14 +617,33 @@ int fs_write(int fd, void *buf, size_t count)
 
 		block_write(to_write + sb->data_blk, block_bounce);
 
+		
+
 		if (get_next_data_block(to_write) == FAT_EOC) {
+			files[fd]->offset += difference;
 			break;
 		}
 
+		//Move offset to the end of the block
+		if (inc == 1) {
+			if (count < BLOCK_SIZE - files[fd]->offset) {
+				files[fd]->offset += count;
+			}
+			else {
+				difference = (BLOCK_SIZE - files[fd]->offset);
+				files[fd]->offset += (BLOCK_SIZE - files[fd]->offset);
+			}
+		}
+		else {
+			files[fd]->offset += BLOCK_SIZE;
+		}
+
 		to_write = get_next_data_block(to_write);
+
+		
 	}
 
-	return strlen(buf); // Return number of bytes written
+	return count; // Return number of bytes written
 }
 
 int fs_read(int fd, void *buf, size_t count)
@@ -655,7 +676,7 @@ int fs_read(int fd, void *buf, size_t count)
 	while ((++inc)) {
 		//Check if read is out of bounds
 		if (to_read + 1 > sb->data_blk_count) {
-			count = inc * BLOCK_SIZE - files[fd]->offset;
+			count = (inc-1) * BLOCK_SIZE - files[fd]->offset;
 			break;
 		}
 
