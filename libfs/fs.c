@@ -273,7 +273,7 @@ int fs_delete(const char *filename)
 	/* TODO: Phase 2 */
 
 	// Return -1 if no FS is mounted or filename is invalid
-	if (block_disk_count() == -1 || !filename) { // CHECK IF FILE IS CURRENTLY OPEN
+	if (block_disk_count() == -1 || !filename) {
 		return -1;
 	}
 
@@ -290,7 +290,14 @@ int fs_delete(const char *filename)
 	if (found_index == -1) {
 		return -1;
 	}
-	
+
+	// Return -1 if file is still open
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
+		if (files[i] && !strcmp(files[i]->filename, filename)) {
+				return -1;
+			}
+		}
+	}
 	rd->entries[found_index].filename[0] = '\0';
 	int to_delete = rd->entries[found_index].index;
 
@@ -357,7 +364,7 @@ int fs_open(const char *filename)
 	
 	//Go through open files and find empty spot
 	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
-		if (files[i] == NULL) {
+		if (!files[i]) {
 
 			//Allocate memory
 			files[i] = (struct file_descripter*)malloc(sizeof(struct file_descripter));
