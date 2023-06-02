@@ -112,7 +112,6 @@ int fs_mount(const char *diskname)
 	sb = (struct superblock*)malloc(sizeof(struct superblock));
 
 	if (sb == NULL) {
-		printf("Superblock failed to allocate");
 		return -1;
 	}
 
@@ -120,7 +119,6 @@ int fs_mount(const char *diskname)
 	rd = (struct root_dir*)malloc(sizeof(struct root_dir));
 
 	if (rd == NULL) {
-		printf("Root failed to allocate");
 		return -1;
 	}
 
@@ -129,14 +127,13 @@ int fs_mount(const char *diskname)
 
 	//Read the super block from virtual disk
 	if (block_read(0, sb)) {
-		printf("Read failed");
+		return -1;
 	}
 
 	//Allocate memory for fat_array (after reading superblock, we now know how many fat blocks there are)
 	fat_array = (struct fat*)malloc(sb->fat_blk_count * sizeof(struct fat));
 
 	if (fat_array == NULL) {
-		printf("Fat array failed to allocate");
 		return -1;
 	}
 
@@ -350,24 +347,21 @@ int fs_open(const char *filename)
 
 	//Return if max fd's has been reached
 	if (fs_open_count == FS_FILE_MAX_COUNT) {
-		printf("Too many files open\n");
 		return -1;
 	}
 
 	//Check for null pointer
 	if (!filename) {
-		printf("Invalid filename\n");
 		return -1;
 	}
 	
 	//Go through open files and find empty spot
-	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
 		if (files[i] == NULL) {
 
 			//Allocate memory
 			files[i] = (struct file_descripter*)malloc(sizeof(struct file_descripter));
 			if (files[i] == NULL) {
-				printf("file descripter failed to allocate enough memory\n");
 				return -1;
 			}
 
@@ -383,7 +377,6 @@ int fs_open(const char *filename)
 
 			// Return -1 if file not found
 			if (files[i]->root_entry == -1) {
-				printf("File not found\n");
 				return -1;
 			}
 
@@ -398,7 +391,7 @@ int fs_open(const char *filename)
 		}
 	}
 
-	return 0;
+	return -1;
 }
 
 int fs_close(int fd)
@@ -412,13 +405,11 @@ int fs_close(int fd)
 
 	//Check for bounds error
 	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
-		printf("file out of bounds\n");
 		return -1;
 	}
 
 	//Check to see if the fd exists
 	if (files[fd] == NULL) {
-		printf("File descripter not found\n");
 		return -1;
 	}
 
@@ -442,13 +433,11 @@ int fs_stat(int fd)
 
 	//Check for bounds error
 	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
-		printf("file out of bounds\n");
 		return -1;
 	}
 
 	//Check to see if the fd exists
 	if (files[fd] == NULL) {
-		printf("File descripter not found\n");
 		return -1;
 	}
 
@@ -467,19 +456,16 @@ int fs_lseek(int fd, size_t offset)
 
 	//Check for bounds error
 	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
-		printf("file out of bounds\n");
 		return -1;
 	}
 
 	//Check to see if the fd exists
 	if (files[fd] == NULL) {
-		printf("File descripter not found\n");
 		return -1;
 	}
 
 	//Check if the offset is greater than the size of the file
 	if (offset > rd->entries[files[fd]->root_entry].size) {
-		printf("Offset is bigger than file size\n");
 		return -1;
 	}
 	
