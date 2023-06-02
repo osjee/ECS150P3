@@ -590,6 +590,7 @@ int fs_write(int fd, void *buf, size_t count)
 	//Used to calculate the amount of bytes that dont fill a block
 	int difference = 0;
 	while ((++inc)) {
+		printf("Hey\n");
 		//Check to see if block to write is outside of file 
 		if (to_write + 1 > sb->data_blk_count) {
 			//Return bytes written
@@ -629,6 +630,7 @@ int fs_write(int fd, void *buf, size_t count)
 		
 	}
 
+	files[fd]->offset += count;
 	return count; // Return number of bytes written
 }
 

@@ -17,14 +17,20 @@ int main(int argc, char** argv){
 	//fs_info();
 
 	char *buf = malloc(9999);
-	//char* buf2 = malloc(9999);
+	char* buf2 = malloc(9999);
 	//char* buf3 = malloc(9999);
 
-	fs_create("file0");
-	fs_open("file0");
-	fs_ls();
-	fs_delete("file0");
-	fs_ls();
+	int fd;
+
+	fs_create("Hello.txt");
+	fd = fs_open("Hello.txt");
+	fs_write(fd, "99999", 5);
+	fs_write(fd, "11111", 5);
+	fs_lseek(fd, 0);
+	fs_read(fd, buf, 5);
+	fs_read(fd, buf2, 5);
+	printf("%s\n", buf);
+	printf("%s\n", buf2);
 
 	/*
 	for (int i = 0; i < 50; i++) {
