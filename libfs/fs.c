@@ -292,9 +292,10 @@ int fs_delete(const char *filename)
 	}
 
 	// Return -1 if file is open
-	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (files[i] && !strcmp(files[i]->filename, filename)) {
-			return -1;
+	for (int i = 0; i < ROOT_ENTRIES; i++) {
+		if (!strcmp(rd->entries[i].filename, filename)) {
+			found_index = i;
+			break;
 		}
 	}
 	

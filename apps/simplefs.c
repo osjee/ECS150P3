@@ -32,8 +32,6 @@ int main(int argc, char** argv){
 	printf("%s\n", buf);
 	printf("%s\n", buf2);
 
-	fs_ls();
-
 	/*
 	for (int i = 0; i < 50; i++) {
 		fs_create("file0");
