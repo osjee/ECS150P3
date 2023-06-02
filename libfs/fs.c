@@ -290,17 +290,17 @@ int fs_delete(const char *filename)
 	if (found_index == -1) {
 		return -1;
 	}
-
+	
 	rd->entries[found_index].filename[0] = '\0';
 	int to_delete = rd->entries[found_index].index;
 
 	// Remove data from FAT array
-	while (1) {
+	while (rd->entries[found_index].size) {
 		// Chooses the block to delete from
 		int fat_block = to_delete / (BLOCK_SIZE / 2); 
 		// Chooses the index of the block to delete from
 		int fat_index = to_delete % (BLOCK_SIZE / 2); 
-
+		
 		if (get_next_data_block(to_delete) == FAT_EOC) {
 			fat_array[fat_block].index[fat_index] = 0;
 			break;
