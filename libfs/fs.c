@@ -290,6 +290,14 @@ int fs_delete(const char *filename)
 	if (found_index == -1) {
 		return -1;
 	}
+
+	// Return -1 if file is open
+	for (int i = 0; i < ROOT_ENTRIES; i++) {
+		if (!strcmp(rd->entries[i].filename, filename)) {
+			found_index = i;
+			break;
+		}
+	}
 	
 	rd->entries[found_index].filename[0] = '\0';
 	int to_delete = rd->entries[found_index].index;
