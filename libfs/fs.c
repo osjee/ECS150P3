@@ -273,7 +273,7 @@ int fs_delete(const char *filename)
 	/* TODO: Phase 2 */
 
 	// Return -1 if no FS is mounted or filename is invalid
-	if (block_disk_count() == -1 || !filename) {
+	if (block_disk_count() == -1 || !filename) { // CHECK IF FILE IS CURRENTLY OPEN
 		return -1;
 	}
 
@@ -290,14 +290,7 @@ int fs_delete(const char *filename)
 	if (found_index == -1) {
 		return -1;
 	}
-
-	// Return -1 if file is still open
-	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
-		if (files[i] && !strcmp(files[i]->filename, filename)) {
-				return -1;
-			}
-		}
-	}
+	
 	rd->entries[found_index].filename[0] = '\0';
 	int to_delete = rd->entries[found_index].index;
 
@@ -364,7 +357,7 @@ int fs_open(const char *filename)
 	
 	//Go through open files and find empty spot
 	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
-		if (!files[i]) {
+		if (files[i] == NULL) {
 
 			//Allocate memory
 			files[i] = (struct file_descripter*)malloc(sizeof(struct file_descripter));
@@ -597,7 +590,6 @@ int fs_write(int fd, void *buf, size_t count)
 	//Used to calculate the amount of bytes that dont fill a block
 	int difference = 0;
 	while ((++inc)) {
-		printf("Hey\n");
 		//Check to see if block to write is outside of file 
 		if (to_write + 1 > sb->data_blk_count) {
 			//Return bytes written
