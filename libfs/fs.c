@@ -273,6 +273,11 @@ int fs_umount(void)
 
 int fs_info(void)
 {
+
+	if (block_disk_count() == -1){
+		return -1;
+	}
+
 	used_fat_entries = 0;
 
 	//Read through all fat blocks to determine how many are used	
