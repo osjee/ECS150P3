@@ -403,7 +403,7 @@ int fs_open(const char *filename)
 	}
 
 	//Return if max fd's has been reached
-	if (fs_open_count == FS_FILE_MAX_COUNT) {
+	if (fs_open_count == FS_OPEN_MAX_COUNT) {
 		return -1;
 	}
 
@@ -459,7 +459,7 @@ int fs_close(int fd)
 	}
 
 	//Check for bounds error
-	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
+	if (fd > FS_OPEN_MAX_COUNT - 1 || fd < 0) {
 		return -1;
 	}
 
@@ -485,10 +485,10 @@ int fs_stat(int fd)
 	}
 
 	//Check for bounds error
-	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
+	if (fd > FS_OPEN_MAX_COUNT - 1 || fd < 0) {
 		return -1;
 	}
-
+	
 	//Check to see if the fd exists
 	if (files[fd] == NULL) {
 		return -1;
@@ -506,7 +506,7 @@ int fs_lseek(int fd, size_t offset)
 	}
 
 	//Check for bounds error
-	if (fd > FS_FILE_MAX_COUNT - 1 || fd < 0) {
+	if (fd > FS_OPEN_MAX_COUNT - 1 || fd < 0) {
 		return -1;
 	}
 
@@ -528,7 +528,7 @@ int fs_lseek(int fd, size_t offset)
 int fs_write(int fd, void *buf, size_t count)
 {
 	// Return -1 if no FS is mounted or fd is out of bounds or fd isn't open or buffer doesn't exist
-	if (block_disk_count() == -1 || fd > FS_FILE_MAX_COUNT - 1 || fd < 0 || !files[fd] || !buf) {
+	if (block_disk_count() == -1 || fd > FS_OPEN_MAX_COUNT - 1 || fd < 0 || !files[fd] || !buf) {
 		return -1;
 	}
 
@@ -733,9 +733,9 @@ int fs_write(int fd, void *buf, size_t count)
 int fs_read(int fd, void *buf, size_t count)
 {
 	//printf("fs_read: count=%lu\n", count);
-
+	 
 	// Return -1 if no FS is mounted or fd is out of bounds or fd isn't open or buffer doesn't exist
-	if (block_disk_count() == -1 || fd > FS_FILE_MAX_COUNT - 1 || fd < 0 || !files[fd] || !buf) {
+	if (block_disk_count() == -1 || fd > FS_OPEN_MAX_COUNT - 1 || fd < 0 || !files[fd] || !buf) {
 		return -1;
 	}
 
