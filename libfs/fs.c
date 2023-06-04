@@ -241,6 +241,11 @@ int fs_mount(const char *diskname)
 
 int fs_umount(void)
 {
+
+	if (fs_open_count != 0) {
+		return -1;
+	}
+
 	// Writing to block
 	block_write(0, sb);
 	for (int i = 0; i < sb->fat_blk_count; i++) {
@@ -248,7 +253,9 @@ int fs_umount(void)
 	}
 	block_write(sb->rdir_blk, rd);
 
-	block_disk_close();
+	if (block_disk_close() == -1) {
+		return -1;
+	}
 
 	//Free everything that was malloced
 	free(rd);
@@ -259,6 +266,7 @@ int fs_umount(void)
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		free(files[i]);
 	}
+
 
 	return 0;
 }
